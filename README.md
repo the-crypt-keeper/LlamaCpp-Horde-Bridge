@@ -1,10 +1,8 @@
-# KoboldAI Horde Bridge
+# LlamaCpp Horde Bridge
 
-This software enables you to join your [llama.cpp](https://github.com/ggerganov/llama.cpp) server to the [KoboldAI Horde](https://github.com/db0/AI-Horde) and make it into a worker.
+This software enables you to join your [llama.cpp](https://github.com/ggerganov/llama.cpp) server to the [KoboldAI Horde](https://github.com/db0/AI-Horde) and make it into a Scribe worker, performing distributed text generation.
 
 It is a fork of [KoboldAI-Horde-Bridge](https://raw.githubusercontent.com/db0/KoboldAI-Horde-Bridge).
-
-This repository contains a little bridge script which you can run on your own machine (windows or linux). It will take care of communicating between the KoboldAI Horde and your own KAI Worker. This will allow people to use their own PCs to support the KAI horde.
 
 # Why llama.cpp and not koboldcpp?
 
