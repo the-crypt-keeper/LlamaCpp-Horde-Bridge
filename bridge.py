@@ -77,7 +77,7 @@ class kai_bridge():
         return_error = None
         loop_retry = 0
         failed_requests_in_a_row = 0
-        self.BRIDGE_AGENT = f"LlamaCpp Bridge:10:https://github.com/db0/KoboldAI-Horde-Bridge"
+        self.BRIDGE_AGENT = f"LlamaCpp Bridge:10:https://github.com/the-crypt-keeper/LlamaCpp-Horde-Bridge"
         cluster = horde_url
         while self.run:
             headers = {"apikey": api_key}
