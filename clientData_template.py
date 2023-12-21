@@ -1,8 +1,7 @@
 # The cluster url. Don't change this unless you're running a private horde.
 cluster_url = "https://aihorde.net"
-# Where can your bridge reach your KoboldAI Worker. 
-# If you're using a Google Colab, put the URL where you can reach your KoboldAI here.
-kai_url = "http://localhost:5000"
+# Where can your bridge reach your llama.cpp server
+kai_url = "http://localhost:8080"
 # Give a cool name to your worker
 kai_name = "My Awesome Instance"
 # The api_key identifies a unique user in the horde

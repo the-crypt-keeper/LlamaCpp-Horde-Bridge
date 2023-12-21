@@ -44,22 +44,17 @@ class kai_bridge():
         if self.model != '' and (self.last_retrieved is None or time.time() - self.last_retrieved <= 30):
             return True
         self.last_retrieved = time.time()
-        logger.debug("Retrieving settings from KoboldAI Client...")
+        logger.debug("Retrieving settings from LamaCpp Server...")
         try:
-            req = requests.get(kai + '/api/latest/model')
-            self.model = req.json()["result"]
-            # Normalize huggingface and local downloaded model names
-            if "/" not in self.model:
-                self.model = self.model.replace('_', '/', 1)
-            req = requests.get(kai + '/api/latest/config/max_context_length')
-            self.max_context_length = req.json()["value"]
-            req = requests.get(kai + '/api/latest/config/max_length')
-            self.max_length = req.json()["value"]
-            if self.model not in self.softprompts:
-                    req = requests.get(kai + '/api/latest/config/soft_prompts_list')
-                    self.softprompts[self.model] = [sp['value'] for sp in req.json()["values"]]
-            req = requests.get(kai + '/api/latest/config/soft_prompt')
-            self.current_softprompt = req.json()["value"]
+            req = requests.get(kai + '/model.json')
+            gen_settings = req.json()
+            
+            self.model = 'koboldcpp/'+os.path.basename(gen_settings["model"]).replace('.gguf','')          
+            self.max_context_length = int(gen_settings["n_ctx"])
+            self.max_length = int(self.max_context_length/2)
+            self.softprompts[self.model] = []
+            self.current_softprompt = ""
+            logger.info(f"llama.cpp server model={self.model} n_ctx={self.max_context_length}")
         except requests.exceptions.JSONDecodeError:
             logger.error(f"Server {kai} is up but does not appear to be a KoboldAI server. Are you sure it's running the UNITED branch?")
             return(False)
@@ -82,7 +77,7 @@ class kai_bridge():
         return_error = None
         loop_retry = 0
         failed_requests_in_a_row = 0
-        self.BRIDGE_AGENT = f"KoboldAI Bridge:10:https://github.com/db0/KoboldAI-Horde-Bridge"
+        self.BRIDGE_AGENT = f"LlamaCpp Bridge:10:https://github.com/db0/KoboldAI-Horde-Bridge"
         cluster = horde_url
         while self.run:
             headers = {"apikey": api_key}
@@ -121,6 +116,7 @@ class kai_bridge():
                 "softprompts": self.softprompts[self.model],
                 "bridge_agent": self.BRIDGE_AGENT,
             }
+            # print('gen_dict', gen_dict)
             if current_id:
                 loop_retry += 1
             else:
@@ -162,15 +158,30 @@ class kai_bridge():
                 requested_softprompt = pop['softprompt']
             logger.info(f"Job received from {cluster} for {current_payload.setdefault('max_length',80)} tokens and {current_payload.setdefault('max_context_length',1024)} max context. Starting generation...")
             
-            if "soft_prompt" in current_payload and current_payload["soft_prompt"] not in self.softprompts[self.model]:
-                #prevent unknown rogue softprompt from crashing horde worker
-                current_payload["soft_prompt"] = "" #this is a valid value that functions like no softprompt
+            # if "soft_prompt" in current_payload and current_payload["soft_prompt"] not in self.softprompts[self.model]:
+            #     #prevent unknown rogue softprompt from crashing horde worker
+            #     current_payload["soft_prompt"] = "" #this is a valid value that functions like no softprompt
             
-            if requested_softprompt != self.current_softprompt:
-                req = requests.put(kai_url + '/api/latest/config/soft_prompt/', json = {"value": requested_softprompt})
-                time.sleep(1) # Wait a second to unload the softprompt
+            # if requested_softprompt != self.current_softprompt:
+            #     req = requests.put(kai_url + '/api/latest/config/soft_prompt/', json = {"value": requested_softprompt})
+            #     time.sleep(1) # Wait a second to unload the softprompt
+                
             try:
-                gen_req = requests.post(kai_url + '/api/latest/generate/', json = current_payload, timeout=300)
+                llama_request = {
+                    'prompt': current_payload['prompt'],
+                    'stop': current_payload.get('stop_sequence',[]),
+                    'n_predict': current_payload['max_length'],
+                    'temperature': current_payload['temperature'],
+                    'tfs_z': current_payload['tfs'],
+                    'top_k': current_payload['top_k'],
+                    'top_p': current_payload['top_p'],
+                    'repeat_penalty': current_payload['rep_pen'],
+                    'repeat_last_n': current_payload['rep_pen_range'],
+                    'typical_p': current_payload['typical']
+                }
+                # print('original:', current_payload)
+                # print('llama:', llama_request)
+                gen_req = requests.post(kai_url + '/completion', json = llama_request, timeout=300)
             except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
                 logger.error(f"Worker {kai_url} unavailable. Waiting 10 seconds...")
                 loop_retry += 1
@@ -202,7 +213,7 @@ class kai_bridge():
                     time.sleep(interval)
                     continue
                 try:
-                    current_generation = req_json["results"][0]["text"]
+                    current_generation = req_json["content"]
                 except KeyError:
                     logger.error(f"Unexpected response received from {kai_url}: {req_json}. Please check the health of the KAI worker. Retrying in 10 seconds...")
                     logger.debug(current_payload)
@@ -245,7 +256,7 @@ class kai_bridge():
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument('-i', '--interval', action="store", required=False, type=int, default=1, help="The amount of seconds with which to check if there's new prompts to generate")
+    arg_parser.add_argument('-i', '--interval', action="store", required=False, type=int, default=2, help="The amount of seconds with which to check if there's new prompts to generate")
     arg_parser.add_argument('-a', '--api_key', action="store", required=False, type=str, help="The API key corresponding to the owner of the KAI instance")
     arg_parser.add_argument('-n', '--kai_name', action="store", required=False, type=str, help="The server name. It will be shown to the world and there can be only one.")
     arg_parser.add_argument('-k', '--kai_url', action="store", required=False, type=str, help="The KoboldAI server URL. Where the bridge will get its generations from.")
@@ -258,7 +269,7 @@ if __name__ == "__main__":
     args = arg_parser.parse_args()
     set_logger_verbosity(args.verbosity)
     if args.log_file:
-        logger.add("koboldai_bridge_log.log", retention="7 days", level="warning")    # Automatically rotate too big file
+        logger.add("llamacpp_bridge_log.log", retention="7 days", level="warning")    # Automatically rotate too big file
     quiesce_logger(args.quiet)
     # test_logger()
     api_key = args.api_key if args.api_key else cd.api_key
