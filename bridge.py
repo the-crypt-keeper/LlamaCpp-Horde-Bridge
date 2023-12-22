@@ -1,8 +1,5 @@
-import requests, json, os, time, argparse, urllib3
+import requests, json, os, time, argparse, urllib3, threading, queue, random, time
 from logger import logger, set_logger_verbosity, quiesce_logger, test_logger
-
-import random
-import time
 
 try:
     import clientData as cd
@@ -31,14 +28,50 @@ class kai_bridge():
         self.model = ''
         self.max_context_length = 1024
         self.max_length = 80
-        self.current_softprompt = None
-        self.softprompts = {}
         self.run = True
         self.last_retrieved = None
-            
+
+        self.submit_queue = queue.Queue()
+        self.failed_requests_in_a_row = 0
+        self.failed_requests_lock = threading.Lock()
+        
+        self.submit_thread = None
+                    
     def stop(self):
         self.run = False
-    
+        if self.submit_thread is not None:
+            self.submit_thread.join()
+        
+    def submit_generation(self, horde_url, api_key):
+        headers = {"apikey": api_key}
+        cluster = horde_url
+        
+        while self.run:
+            submit_dict = self.submit_queue.get()
+            while True:
+                try:
+                    submit_req = requests.post(cluster + '/api/v2/generate/text/submit', json = submit_dict, headers = headers, timeout=40)
+                    if submit_req.status_code == 404:
+                        logger.warning(f"The generation we were working on got stale. Aborting!")
+                    elif not submit_req.ok:
+                        if "already submitted" in submit_req.text:
+                            logger.warning(f'Server think this gen already submitted. Continuing')
+                        else:
+                            logger.error(submit_req.status_code)
+                            logger.warning(f"During gen submit, server {cluster} responded: {submit_req.text}. Waiting for 10 seconds...")
+                            time.sleep(10)
+                            continue
+                    else:
+                        logger.info(f'Submitted generation to {cluster} with id {submit_dict.get("id")} and contributed for {submit_req.json()["reward"]}')
+                        with self.failed_requests_lock:
+                            self.failed_requests_in_a_row = 0
+                        break
+                except (urllib3.exceptions.MaxRetryError, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
+                    logger.warning(f"Server {cluster} unavailable during submit. Waiting 10 seconds...")
+                    time.sleep(10)
+                    continue
+            self.submit_queue.task_done()
+                
     @logger.catch
     def validate_kai(self, kai):
         if self.model != '' and (self.last_retrieved is None or time.time() - self.last_retrieved <= 30):
@@ -52,8 +85,7 @@ class kai_bridge():
             self.model = 'koboldcpp/'+os.path.basename(gen_settings["model"]).replace('.gguf','')          
             self.max_context_length = int(gen_settings["n_ctx"])
             self.max_length = int(self.max_context_length/2)
-            self.softprompts[self.model] = []
-            self.current_softprompt = ""
+
             logger.info(f"llama.cpp server model={self.model} n_ctx={self.max_context_length}")
         except requests.exceptions.JSONDecodeError:
             logger.error(f"Server {kai} is up but does not appear to be a LamaCpp server.")
@@ -76,9 +108,13 @@ class kai_bridge():
         current_payload = None
         return_error = None
         loop_retry = 0
-        failed_requests_in_a_row = 0
+
         self.BRIDGE_AGENT = f"LlamaCpp Bridge:11:https://github.com/the-crypt-keeper/LlamaCpp-Horde-Bridge"
         cluster = horde_url
+        
+        self.submit_thread = threading.Thread(target=self.submit_generation, args=(horde_url, api_key))
+        self.submit_thread.start()
+        
         while self.run:
             headers = {"apikey": api_key}
             
@@ -99,9 +135,11 @@ class kai_bridge():
                 submit_req = requests.post(cluster + '/api/v2/generate/text/submit', json = submit_dict, headers = headers)
                 if submit_req.status_code == 404:
                     logger.warning(f"The generation we were working on got stale. Aborting!")
-                failed_requests_in_a_row += 1
-                if failed_requests_in_a_row > 3:
-                    logger.error(f"{failed_requests_in_a_row} Requests failed in a row. Crashing bridge!")
+                with self.failed_requests_lock:
+                    self.failed_requests_in_a_row += 1
+                    failed_requests_in_a_row_copy = self.failed_requests_in_a_row
+                if failed_requests_in_a_row_copy > 3:
+                    logger.error(f"{failed_requests_in_a_row_copy} Requests failed in a row. Crashing bridge!")
                     return
             elif current_id:
                 logger.debug(f"Retrying ({loop_retry}/10) for generation id {current_id}...")
@@ -117,7 +155,7 @@ class kai_bridge():
                 "max_length": self.max_length,
                 "max_context_length": self.max_context_length,
                 "priority_usernames": priority_usernames,
-                "softprompts": self.softprompts[self.model],
+                "softprompts": [],
                 "bridge_agent": self.BRIDGE_AGENT,
             }
             
@@ -223,35 +261,16 @@ class kai_bridge():
                     "generation": current_generation,
                 }
                 
-            # Submit response
-            while current_id and (current_generation is not None):
-                try:
-                    submit_req = requests.post(cluster + '/api/v2/generate/text/submit', json = submit_dict, headers = headers, timeout=40)
-                    if submit_req.status_code == 404:
-                        logger.warning(f"The generation we were working on got stale. Aborting!")
-                    elif not submit_req.ok:
-                        if "already submitted" in submit_req.text:
-                            logger.warning(f'Server think this gen already submitted. Continuing')
-                        else:
-                            logger.error(submit_req.status_code)
-                            logger.warning(f"During gen submit, server {cluster} responded: {submit_req.text}. Waiting for 10 seconds...")
-                            loop_retry += 1
-                            time.sleep(10)
-                            continue
-                    else:
-                        logger.info(f'Submitted generation to {cluster} with id {current_id} and contributed for {submit_req.json()["reward"]}')
-                        failed_requests_in_a_row = 0
-                    current_id = None
-                    current_payload = None
-                    current_generation = None
-                    return_error = None
-                    loop_retry = 0
-                except (urllib3.exceptions.MaxRetryError, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
-                    logger.warning(f"Server {cluster} unavailable during submit. Waiting 10 seconds...")
-                    loop_retry += 1
-                    time.sleep(10)
-                    continue            
-            # time.sleep(interval)
+            # Submit response via thread
+            self.submit_queue.put(submit_dict)
+            
+            # Reset states
+            current_id = None
+            current_payload = None
+            current_generation = None
+            return_error = None
+            loop_retry = 0
+                
 
 
 if __name__ == "__main__":
@@ -278,8 +297,10 @@ if __name__ == "__main__":
     horde_url = args.cluster_url if args.cluster_url else cd.cluster_url
     priority_usernames = args.priority_usernames if args.priority_usernames else cd.priority_usernames
     logger.init(f"{kai_name} Instance", status="Started")
-    try:
-        kai_bridge().bridge(
+    
+    binst = kai_bridge()
+    try:                
+        binst.bridge(
             interval = args.interval, 
             api_key = api_key, 
             kai_name= kai_name,
@@ -289,4 +310,6 @@ if __name__ == "__main__":
         )
     except KeyboardInterrupt:
         logger.info(f"Keyboard Interrupt Received. Ending Process")
+    binst.stop()
+        
     logger.init(f"{kai_name} Instance", status="Stopped")
