@@ -171,16 +171,14 @@ class kai_bridge():
                     'prompt': current_payload['prompt'],
                     'stop': current_payload.get('stop_sequence',[]),
                     'n_predict': current_payload['max_length'],
-                    'temperature': current_payload['temperature'],
-                    'tfs_z': current_payload['tfs'],
-                    'top_k': current_payload['top_k'],
-                    'top_p': current_payload['top_p'],
-                    'repeat_penalty': current_payload['rep_pen'],
-                    'repeat_last_n': current_payload['rep_pen_range'],
-                    'typical_p': current_payload['typical']
+                    'temperature': current_payload.get('temperature',1.0),
+                    'tfs_z': current_payload.get('tfs',1.0),
+                    'top_k': current_payload.get('top_k',0),
+                    'top_p': current_payload.get('top_p',1.0),
+                    'repeat_penalty': current_payload.get('rep_pen',1.0),
+                    'repeat_last_n': current_payload.get('rep_pen_range',64),
+                    'typical_p': current_payload.get('typical',0.0)
                 }
-                # print('original:', current_payload)
-                # print('llama:', llama_request)
                 gen_req = requests.post(kai_url + '/completion', json = llama_request, timeout=300)
             except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
                 logger.error(f"Worker {kai_url} unavailable. Waiting 10 seconds...")
@@ -214,6 +212,7 @@ class kai_bridge():
                     continue
                 try:
                     current_generation = req_json["content"]
+                    logger.info(json.dumps(req_json["timings"]))
                 except KeyError:
                     logger.error(f"Unexpected response received from {kai_url}: {req_json}. Please check the health of the KAI worker. Retrying in 10 seconds...")
                     logger.debug(current_payload)
@@ -224,7 +223,7 @@ class kai_bridge():
                     "id": current_id,
                     "generation": current_generation,
                 }
-            while current_id and current_generation:
+            while current_id and (current_generation is not None):
                 try:
                     submit_req = requests.post(cluster + '/api/v2/generate/text/submit', json = submit_dict, headers = headers, timeout=40)
                     if submit_req.status_code == 404:
@@ -250,8 +249,8 @@ class kai_bridge():
                     logger.warning(f"Server {cluster} unavailable during submit. Waiting 10 seconds...")
                     loop_retry += 1
                     time.sleep(10)
-                    continue
-            time.sleep(interval)
+                    continue            
+            # time.sleep(interval)
 
 
 if __name__ == "__main__":
@@ -269,7 +268,7 @@ if __name__ == "__main__":
     args = arg_parser.parse_args()
     set_logger_verbosity(args.verbosity)
     if args.log_file:
-        logger.add("llamacpp_bridge_log.log", retention="7 days", level="warning")    # Automatically rotate too big file
+        logger.add("llamacpp_bridge_log.log", retention="7 days", level="INFO")    # Automatically rotate too big file
     quiesce_logger(args.quiet)
     # test_logger()
     api_key = args.api_key if args.api_key else cd.api_key
