@@ -19,3 +19,5 @@ Compile [llama.cpp](https://github.com/ggerganov/llama.cpp) with `make LLAMA_CUB
   - `kai_name` Horde worker name
   - `api_key` Hode API key
 - Run `bridge.py`
+
+Note that for quick Testing, you can provide these arguments via the CLI: `bridge.py -k <kai_url> -a <api_key> -n <kai_name>` 
