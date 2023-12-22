@@ -77,10 +77,12 @@ class kai_bridge():
         return_error = None
         loop_retry = 0
         failed_requests_in_a_row = 0
-        self.BRIDGE_AGENT = f"LlamaCpp Bridge:10:https://github.com/the-crypt-keeper/LlamaCpp-Horde-Bridge"
+        self.BRIDGE_AGENT = f"LlamaCpp Bridge:11:https://github.com/the-crypt-keeper/LlamaCpp-Horde-Bridge"
         cluster = horde_url
         while self.run:
             headers = {"apikey": api_key}
+            
+            # Generation error handling logic
             if loop_retry > 3 and current_id:
                 logger.error(f"Exceeded retry count {loop_retry} for generation id {current_id}. Aborting generation!")
                 current_id = None
@@ -103,6 +105,8 @@ class kai_bridge():
                     return
             elif current_id:
                 logger.debug(f"Retrying ({loop_retry}/10) for generation id {current_id}...")
+            
+            # Fetch model info from server
             if not self.validate_kai(kai_url):
                 logger.warning(f"Waiting 10 seconds...")
                 time.sleep(10)
@@ -116,20 +120,20 @@ class kai_bridge():
                 "softprompts": self.softprompts[self.model],
                 "bridge_agent": self.BRIDGE_AGENT,
             }
-            # print('gen_dict', gen_dict)
+            
+            # Pop a new text generation job
             if current_id:
                 loop_retry += 1
             else:
+                # Request
                 try:
                     pop_req = requests.post(cluster + '/api/v2/generate/text/pop', json = gen_dict, headers = headers, timeout=40)
-                except (urllib3.exceptions.MaxRetryError, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
+                except (urllib3.exceptions.MaxRetryError, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout, requests.exceptions.JSONDecodeError):
                     logger.error(f"Server {cluster} unavailable during pop. Waiting 10 seconds...")
                     time.sleep(10)
                     continue
-                except requests.exceptions.JSONDecodeError():
-                    logger.warning(f"Server {cluster} unavailable during pop. Waiting 10 seconds...")
-                    time.sleep(10)
-                    continue
+
+                # Validate
                 if not pop_req.ok:
                     logger.warning(f"During gen pop, server {cluster} responded: {pop_req.text}. Waiting for 10 seconds...")
                     time.sleep(10)
@@ -143,6 +147,8 @@ class kai_bridge():
                     logger.debug(f"Server {cluster} has no valid generations to do for us. Skipped Info: {pop['skipped']}.")
                     time.sleep(interval)
                     continue
+
+                # Make sure it's not an image job
                 current_id = pop['id']
                 current_payload = pop['payload']
                 if 'width' in current_payload or 'length' in current_payload or 'steps' in current_payload:
@@ -153,19 +159,10 @@ class kai_bridge():
                     return_error = None
                     loop_retry = 0
                     continue
-                # By default, we don't want to be annoucing the prompt send from the Horde to the terminal
-                current_payload['quiet'] = True
-                requested_softprompt = pop['softprompt']
+
             logger.info(f"Job received from {cluster} for {current_payload.setdefault('max_length',80)} tokens and {current_payload.setdefault('max_context_length',1024)} max context. Starting generation...")
-            
-            # if "soft_prompt" in current_payload and current_payload["soft_prompt"] not in self.softprompts[self.model]:
-            #     #prevent unknown rogue softprompt from crashing horde worker
-            #     current_payload["soft_prompt"] = "" #this is a valid value that functions like no softprompt
-            
-            # if requested_softprompt != self.current_softprompt:
-            #     req = requests.put(kai_url + '/api/latest/config/soft_prompt/', json = {"value": requested_softprompt})
-            #     time.sleep(1) # Wait a second to unload the softprompt
-                
+
+            # Perform generation
             try:
                 llama_request = {
                     'prompt': current_payload['prompt'],
@@ -185,6 +182,8 @@ class kai_bridge():
                 loop_retry += 1
                 time.sleep(10)
                 continue
+            
+            # Validate generation
             if type(gen_req.json()) is not dict:
                 logger.error(f'KAI instance {kai_url} API unexpected response on generate: {gen_req}. Sleeping 10 seconds...')
                 time.sleep(9)
@@ -223,6 +222,8 @@ class kai_bridge():
                     "id": current_id,
                     "generation": current_generation,
                 }
+                
+            # Submit response
             while current_id and (current_generation is not None):
                 try:
                     submit_req = requests.post(cluster + '/api/v2/generate/text/submit', json = submit_dict, headers = headers, timeout=40)
