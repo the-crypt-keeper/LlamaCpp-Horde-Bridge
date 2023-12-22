@@ -56,7 +56,7 @@ class kai_bridge():
             self.current_softprompt = ""
             logger.info(f"llama.cpp server model={self.model} n_ctx={self.max_context_length}")
         except requests.exceptions.JSONDecodeError:
-            logger.error(f"Server {kai} is up but does not appear to be a KoboldAI server. Are you sure it's running the UNITED branch?")
+            logger.error(f"Server {kai} is up but does not appear to be a LamaCpp server.")
             return(False)
         except requests.exceptions.ConnectionError:
             logger.error(f"Server {kai} is not reachable. Are you sure it's running?")
@@ -185,16 +185,16 @@ class kai_bridge():
             
             # Validate generation
             if type(gen_req.json()) is not dict:
-                logger.error(f'KAI instance {kai_url} API unexpected response on generate: {gen_req}. Sleeping 10 seconds...')
+                logger.error(f'LamaCpp instance {kai_url} API unexpected response on generate: {gen_req}. Sleeping 10 seconds...')
                 time.sleep(9)
                 loop_retry += 1
                 continue
             if gen_req.status_code == 503:
-                logger.debug(f'KAI instance {kai_url} Busy (attempt {loop_retry}). Will try again...')
+                logger.debug(f'LamaCpp instance {kai_url} Busy (attempt {loop_retry}). Will try again...')
                 loop_retry += 1
                 continue
             if gen_req.status_code == 422:
-                logger.debug(f'KAI instance {kai_url} reported validation error. Returning as error.')
+                logger.debug(f'LamaCpp instance {kai_url} reported validation error. Returning as error.')
                 return_error = "payload validation error"
             if return_error:
                 submit_dict = {
@@ -205,7 +205,7 @@ class kai_bridge():
                 try:
                     req_json = gen_req.json()
                 except json.decoder.JSONDecodeError:
-                    logger.error(f"Something went wrong when trying to generate on {kai_url}. Please check the health of the KAI worker. Retrying 10 seconds...")
+                    logger.error(f"Something went wrong when trying to generate on {kai_url}. Please check the health of the LamaCpp server. Retrying 10 seconds...")
                     loop_retry += 1
                     time.sleep(interval)
                     continue
@@ -213,7 +213,7 @@ class kai_bridge():
                     current_generation = req_json["content"]
                     logger.info(json.dumps(req_json["timings"]))
                 except KeyError:
-                    logger.error(f"Unexpected response received from {kai_url}: {req_json}. Please check the health of the KAI worker. Retrying in 10 seconds...")
+                    logger.error(f"Unexpected response received from {kai_url}: {req_json}. Please check the health of the LamaCpp server. Retrying in 10 seconds...")
                     logger.debug(current_payload)
                     loop_retry += 1
                     time.sleep(interval)
@@ -257,9 +257,9 @@ class kai_bridge():
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument('-i', '--interval', action="store", required=False, type=int, default=2, help="The amount of seconds with which to check if there's new prompts to generate")
-    arg_parser.add_argument('-a', '--api_key', action="store", required=False, type=str, help="The API key corresponding to the owner of the KAI instance")
+    arg_parser.add_argument('-a', '--api_key', action="store", required=False, type=str, help="The horde API key")
     arg_parser.add_argument('-n', '--kai_name', action="store", required=False, type=str, help="The server name. It will be shown to the world and there can be only one.")
-    arg_parser.add_argument('-k', '--kai_url', action="store", required=False, type=str, help="The KoboldAI server URL. Where the bridge will get its generations from.")
+    arg_parser.add_argument('-k', '--kai_url', action="store", required=False, type=str, help="The LamaCpp server URL. Where the bridge will get its generations from.")
     arg_parser.add_argument('-c', '--cluster_url', action="store", required=False, type=str, help="The KoboldAI Cluster URL. Where the bridge will pickup prompts and send the finished generations.")
     arg_parser.add_argument('--debug', action="store_true", default=False, help="Show debugging messages.")
     arg_parser.add_argument('--priority_usernames',type=str, action='append', required=False, help="Usernames which get priority use in this server. The owner's username is always in this list.")
