@@ -222,11 +222,6 @@ class kai_bridge():
                 continue
             
             # Validate generation
-            if type(gen_req.json()) is not dict:
-                logger.error(f'LamaCpp instance {kai_url} API unexpected response on generate: {gen_req}. Sleeping 10 seconds...')
-                time.sleep(9)
-                loop_retry += 1
-                continue
             if gen_req.status_code == 503:
                 logger.debug(f'LamaCpp instance {kai_url} Busy (attempt {loop_retry}). Will try again...')
                 loop_retry += 1
@@ -242,7 +237,7 @@ class kai_bridge():
             else:
                 try:
                     req_json = gen_req.json()
-                except json.decoder.JSONDecodeError:
+                except requests.exceptions.JSONDecodeError:
                     logger.error(f"Something went wrong when trying to generate on {kai_url}. Please check the health of the LamaCpp server. Retrying 10 seconds...")
                     loop_retry += 1
                     time.sleep(interval)
@@ -252,7 +247,7 @@ class kai_bridge():
                     logger.info(json.dumps(req_json["timings"]))
                 except KeyError:
                     logger.error(f"Unexpected response received from {kai_url}: {req_json}. Please check the health of the LamaCpp server. Retrying in 10 seconds...")
-                    logger.debug(current_payload)
+                    logger.debug(llama_request)
                     loop_retry += 1
                     time.sleep(interval)
                     continue
