@@ -111,21 +111,17 @@ class kai_bridge():
 
         self.BRIDGE_AGENT = f"LlamaCpp Bridge:11:https://github.com/the-crypt-keeper/LlamaCpp-Horde-Bridge"
         cluster = horde_url
+        headers = {"apikey": api_key}
         
         self.submit_thread = threading.Thread(target=self.submit_generation, args=(horde_url, api_key))
         self.submit_thread.start()
         
         while self.run:
-            headers = {"apikey": api_key}
             
             # Generation error handling logic
             if loop_retry > 3 and current_id:
                 logger.error(f"Exceeded retry count {loop_retry} for generation id {current_id}. Aborting generation!")
-                current_id = None
-                current_payload = None
-                current_generation = None
-                return_error = None
-                loop_retry = 0
+
                 submit_dict = {
                     "id": current_id,
                     "state": "faulted",
@@ -133,6 +129,13 @@ class kai_bridge():
                     "seed": -1,
                 }
                 submit_req = requests.post(cluster + '/api/v2/generate/text/submit', json = submit_dict, headers = headers)
+                
+                current_id = None
+                current_payload = None
+                current_generation = None
+                return_error = None
+                loop_retry = 0
+                                
                 if submit_req.status_code == 404:
                     logger.warning(f"The generation we were working on got stale. Aborting!")
                 with self.failed_requests_lock:
@@ -141,8 +144,6 @@ class kai_bridge():
                 if failed_requests_in_a_row_copy > 3:
                     logger.error(f"{failed_requests_in_a_row_copy} Requests failed in a row. Crashing bridge!")
                     return
-            elif current_id:
-                logger.debug(f"Retrying ({loop_retry}/10) for generation id {current_id}...")
             
             # Fetch model info from server
             if not self.validate_kai(kai_url):
@@ -159,9 +160,9 @@ class kai_bridge():
                 "bridge_agent": self.BRIDGE_AGENT,
             }
             
-            # Pop a new text generation job
+            # Pop a new text generation job?
             if current_id:
-                loop_retry += 1
+                logger.warning(f"Retrying ({loop_retry}/10) for generation id {current_id}...")
             else:
                 # Request
                 try:
@@ -198,7 +199,7 @@ class kai_bridge():
                     loop_retry = 0
                     continue
 
-            logger.info(f"Job received from {cluster} for {current_payload.setdefault('max_length',80)} tokens and {current_payload.setdefault('max_context_length',1024)} max context. Starting generation...")
+                logger.info(f"New job received from {cluster} for {current_payload.setdefault('max_length',80)} tokens and {current_payload.setdefault('max_context_length',1024)} max context. Starting generation...")
 
             # Perform generation
             try:
