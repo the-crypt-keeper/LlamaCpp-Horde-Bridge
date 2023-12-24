@@ -40,6 +40,7 @@ class kai_bridge():
     def stop(self):
         self.run = False
         if self.submit_thread is not None:
+            self.submit_queue.put(None)
             self.submit_thread.join()
         
     def submit_generation(self, horde_url, api_key):
@@ -48,6 +49,7 @@ class kai_bridge():
         
         while self.run:
             submit_dict = self.submit_queue.get()
+            if submit_dict is None: continue
             while True:
                 try:
                     submit_req = requests.post(cluster + '/api/v2/generate/text/submit', json = submit_dict, headers = headers, timeout=40)
@@ -306,6 +308,7 @@ if __name__ == "__main__":
         )
     except KeyboardInterrupt:
         logger.info(f"Keyboard Interrupt Received. Ending Process")
+    
     binst.stop()
         
     logger.init(f"{kai_name} Instance", status="Stopped")
