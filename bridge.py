@@ -54,7 +54,7 @@ class kai_bridge():
                 try:
                     submit_req = requests.post(cluster + '/api/v2/generate/text/submit', json = submit_dict, headers = headers, timeout=40)
                     if submit_req.status_code == 404:
-                        logger.warning(f"The generation we were working on got stale. Aborting!")b
+                        logger.warning(f"The generation we were working on got stale. Aborting!")
                         break
                     elif not submit_req.ok:
                         if "already submitted" in submit_req.text:
