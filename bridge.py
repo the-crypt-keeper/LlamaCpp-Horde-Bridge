@@ -59,6 +59,7 @@ class kai_bridge():
                     elif not submit_req.ok:
                         if "already submitted" in submit_req.text:
                             logger.warning(f'Server think this gen already submitted. Continuing')
+                            break
                         else:
                             logger.error(submit_req.status_code)
                             logger.warning(f"During gen submit, server {cluster} responded: {submit_req.text}. Waiting for 10 seconds...")
