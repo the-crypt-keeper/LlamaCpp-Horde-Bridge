@@ -60,6 +60,12 @@ class kai_bridge():
                         if "already submitted" in submit_req.text:
                             logger.warning(f'Server think this gen already submitted. Aborting.')
                             break
+                        elif "took too long" in submit_req.text:
+                            logger.warning(f'Server think this gen took too long. Aborting.')
+                            break                        
+                        elif submit_req.status_code == 400:
+                            logger.error(f"During gen submit, server {cluster} responded: {submit_req.text}")
+                            break
                         else:
                             logger.error(submit_req.status_code)
                             logger.warning(f"During gen submit, server {cluster} responded: {submit_req.text}. Waiting for 10 seconds...")
@@ -113,7 +119,7 @@ class kai_bridge():
         return_error = None
         loop_retry = 0
 
-        self.BRIDGE_AGENT = f"LlamaCpp Bridge:11:https://github.com/the-crypt-keeper/LlamaCpp-Horde-Bridge"
+        self.BRIDGE_AGENT = f"LlamaCpp Bridge:12:https://github.com/the-crypt-keeper/LlamaCpp-Horde-Bridge"
         cluster = horde_url
         headers = {"apikey": api_key}
         
