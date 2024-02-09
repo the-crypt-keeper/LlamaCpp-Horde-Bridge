@@ -89,12 +89,12 @@ class kai_bridge():
         self.last_retrieved = time.time()
         logger.debug("Retrieving settings from LamaCpp Server...")
         try:
-            req = requests.get(kai + '/model.json')
-            gen_settings = req.json()
+            req = requests.get(kai + '/props')
+            gen_settings = req.json()['default_generation_settings']
             
             self.model = 'koboldcpp/'+os.path.basename(gen_settings["model"]).replace('.gguf','')          
             self.max_context_length = int(gen_settings["n_ctx"])
-            self.max_length = int(self.max_context_length/2)
+            self.max_length = min(512, int(self.max_context_length/2))
 
             logger.info(f"llama.cpp server model={self.model} n_ctx={self.max_context_length}")
         except requests.exceptions.JSONDecodeError:
